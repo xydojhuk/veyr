@@ -6,13 +6,14 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
 import tarfile
 import urllib.request
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Iterable
 
 try:
@@ -26,6 +27,9 @@ except ModuleNotFoundError as exc:
 ROOT = Path(__file__).resolve().parents[2]
 CONFIG_FILE = ROOT / "config" / "forge.toml"
 VERSION_FILE = ROOT / "VERSION"
+BUILD_FINGERPRINT_SCHEMA = "veyr-forge-build-v2"
+CHROOT_PROTOCOL = "veyr-chroot-v1"
+SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 
 
 class ForgeError(RuntimeError):
@@ -105,6 +109,45 @@ def ensure_within_root(path: Path) -> Path:
     return resolved
 
 
+def ensure_output_within_root(path: Path) -> Path:
+    """Validate an output path without collapsing its final symlink.
+
+    Package outputs may legitimately be symlinks (for example /usr/bin/sh -> bash).
+    Using Path.resolve() for the stored output path would make distinct declared
+    outputs compare equal and would also stop Forge from verifying the symlink
+    itself.  Normalize the path lexically, validate its real parent, and keep the
+    final path component intact.
+    """
+    root = ROOT.resolve()
+    normalized = Path(os.path.abspath(os.fspath(path)))
+
+    try:
+        normalized.relative_to(root)
+    except ValueError:
+        fail(f"Refusing output outside the Veyr repository: {normalized}")
+
+    parent_resolved = normalized.parent.resolve()
+    try:
+        parent_resolved.relative_to(root)
+    except ValueError:
+        fail(
+            "Refusing output through a parent symlink outside the Veyr "
+            f"repository: {normalized}"
+        )
+
+    if normalized.is_symlink():
+        target_resolved = normalized.resolve(strict=False)
+        try:
+            target_resolved.relative_to(root)
+        except ValueError:
+            fail(
+                "Refusing output symlink that points outside the Veyr "
+                f"repository: {normalized} -> {target_resolved}"
+            )
+
+    return normalized
+
+
 def remove_tree_contents(path: Path) -> None:
     path = ensure_within_root(path)
 
@@ -164,11 +207,21 @@ class Forge:
         self.arch = str(project.get("architecture", "x86_64"))
         self.min_python = str(project.get("min_python", "3.11"))
 
-        self.packages_dir = ROOT / str(paths.get("packages", "packages"))
-        self.profiles_dir = ROOT / str(paths.get("profiles", "profiles"))
-        self.sources_dir = ROOT / str(paths.get("sources", "sources/distfiles"))
-        self.build_dir = ROOT / str(paths.get("build", "build"))
-        self.out_dir = ROOT / str(paths.get("out", "out"))
+        self.packages_dir = ensure_within_root(
+            ROOT / str(paths.get("packages", "packages"))
+        )
+        self.profiles_dir = ensure_within_root(
+            ROOT / str(paths.get("profiles", "profiles"))
+        )
+        self.sources_dir = ensure_within_root(
+            ROOT / str(paths.get("sources", "sources/distfiles"))
+        )
+        self.build_dir = ensure_within_root(
+            ROOT / str(paths.get("build", "build"))
+        )
+        self.out_dir = ensure_within_root(
+            ROOT / str(paths.get("out", "out"))
+        )
         self.state_dir = self.build_dir / "state" / "packages"
 
         for directory in (
@@ -201,7 +254,7 @@ class Forge:
                 fail(f"Duplicate package name: {name}")
 
             script_name = str(build_data.get("script", "build.sh"))
-            build_script = manifest.parent / script_name
+            build_script = ensure_within_root(manifest.parent / script_name)
             if not build_script.is_file():
                 fail(
                     f"Build script not found for package {name}: "
@@ -219,7 +272,7 @@ class Forge:
                 )
 
             outputs = tuple(
-                ROOT / str(item)
+                ensure_output_within_root(ROOT / str(item))
                 for item in package_data.get("outputs", [])
             )
 
@@ -270,10 +323,14 @@ class Forge:
                 fail(f"Duplicate profile id: {profile_id}")
 
             run_value = str(image_data.get("run", "")).strip()
-            run_script = ROOT / run_value if run_value else None
+            run_script = (
+                ensure_within_root(ROOT / run_value) if run_value else None
+            )
 
             chroot_value = str(chroot_data.get("root", "")).strip()
-            chroot_root = ROOT / chroot_value if chroot_value else None
+            chroot_root = (
+                ensure_within_root(ROOT / chroot_value) if chroot_value else None
+            )
 
             profiles[profile_id] = Profile(
                 id=profile_id,
@@ -285,12 +342,12 @@ class Forge:
                     str(item) for item in profile_data.get("packages", [])
                 ),
                 prepare_steps=tuple(
-                    ROOT / str(item)
+                    ensure_within_root(ROOT / str(item))
                     for item in prepare_data.get("steps", [])
                 ),
                 chroot_root=chroot_root,
                 image_steps=tuple(
-                    ROOT / str(item)
+                    ensure_within_root(ROOT / str(item))
                     for item in image_data.get("steps", [])
                 ),
                 run_script=run_script,
@@ -300,15 +357,52 @@ class Forge:
         return profiles
 
     def _validate_references(self) -> None:
+        if not self.version:
+            fail("VERSION is empty")
+
+        archive_hashes: dict[str, str] = {}
+
         for package in self.packages.values():
             if not package.source_urls:
                 fail(f"Package {package.name} has no source URL")
 
-            if not package.source_archive:
-                fail(f"Package {package.name} has no source archive name")
+            archive_name = PurePosixPath(package.source_archive)
+            if (
+                not package.source_archive
+                or archive_name.is_absolute()
+                or len(archive_name.parts) != 1
+                or archive_name.name in {"", ".", ".."}
+            ):
+                fail(
+                    f"Package {package.name} has unsafe source archive name: "
+                    f"{package.source_archive!r}"
+                )
 
-            if not package.source_sha256:
-                fail(f"Package {package.name} has no source SHA256")
+            if not SHA256_PATTERN.fullmatch(package.source_sha256):
+                fail(
+                    f"Package {package.name} has invalid source SHA256; "
+                    "expected 64 lowercase hexadecimal characters"
+                )
+
+            previous_hash = archive_hashes.get(package.source_archive)
+            if previous_hash and previous_hash != package.source_sha256:
+                fail(
+                    f"Source archive name collision with different SHA256: "
+                    f"{package.source_archive}"
+                )
+            archive_hashes[package.source_archive] = package.source_sha256
+
+            if not package.outputs:
+                fail(f"Package {package.name} declares no outputs")
+
+            if len(set(package.outputs)) != len(package.outputs):
+                fail(f"Package {package.name} declares duplicate outputs")
+
+            if not os.access(package.build_script, os.X_OK):
+                fail(
+                    f"Build script is not executable for package {package.name}: "
+                    f"{package.build_script.relative_to(ROOT)}"
+                )
 
             for dependency in package.dependencies:
                 if dependency not in self.packages:
@@ -318,10 +412,19 @@ class Forge:
                     )
 
         for profile in self.profiles.values():
+            if profile.status not in {"active", "planned"}:
+                fail(
+                    f"Profile {profile.id} has unsupported status: "
+                    f"{profile.status}"
+                )
+
             if profile.parent and profile.parent not in self.profiles:
                 fail(
                     f"Profile {profile.id} has unknown parent {profile.parent}"
                 )
+
+            if len(set(profile.packages)) != len(profile.packages):
+                fail(f"Profile {profile.id} declares duplicate packages")
 
             for package_name in profile.packages:
                 if package_name not in self.packages:
@@ -336,12 +439,23 @@ class Forge:
                         f"Profile step not found for {profile.id}: "
                         f"{step.relative_to(ROOT)}"
                     )
+                if not os.access(step, os.X_OK):
+                    fail(
+                        f"Profile step is not executable for {profile.id}: "
+                        f"{step.relative_to(ROOT)}"
+                    )
 
-            if profile.run_script and not profile.run_script.is_file():
-                fail(
-                    f"Run script not found for profile {profile.id}: "
-                    f"{profile.run_script.relative_to(ROOT)}"
-                )
+            if profile.run_script:
+                if not profile.run_script.is_file():
+                    fail(
+                        f"Run script not found for profile {profile.id}: "
+                        f"{profile.run_script.relative_to(ROOT)}"
+                    )
+                if not os.access(profile.run_script, os.X_OK):
+                    fail(
+                        f"Run script is not executable for profile {profile.id}: "
+                        f"{profile.run_script.relative_to(ROOT)}"
+                    )
 
     def package(self, name: str) -> Package:
         try:
@@ -429,6 +543,161 @@ class Forge:
             visit(package_name)
 
         return order
+
+    def _validate_profile_build_stage(self, profile_id: str) -> None:
+        order = self.build_order(self.profile_packages(profile_id))
+        entered_chroot_stage = False
+        has_chroot_packages = False
+
+        for package_name in order:
+            package = self.package(package_name)
+            if package.build_environment == "chroot":
+                entered_chroot_stage = True
+                has_chroot_packages = True
+            elif entered_chroot_stage:
+                fail(
+                    f"Invalid build graph for {profile_id}: host package "
+                    f"{package.name} appears after the chroot stage began"
+                )
+
+        if has_chroot_packages:
+            if not self.profile_prepare_steps(profile_id):
+                fail(
+                    f"Profile {profile_id} contains chroot packages but has "
+                    "no prepare steps"
+                )
+            if self.profile_chroot_root(profile_id) is None:
+                fail(
+                    f"Profile {profile_id} contains chroot packages but has "
+                    "no configured chroot root"
+                )
+
+    def _shell_check_files(self) -> list[Path]:
+        candidates: set[Path] = {ROOT / "veyr"}
+        candidates.update(self.packages[name].build_script for name in self.packages)
+
+        for directory in (ROOT / "scripts", ROOT / "tests"):
+            if directory.is_dir():
+                candidates.update(directory.rglob("*.sh"))
+
+        initramfs_dir = ROOT / "initramfs"
+        if initramfs_dir.is_dir():
+            for path in initramfs_dir.rglob("*"):
+                if not path.is_file():
+                    continue
+                try:
+                    first_line = path.open(
+                        "r", encoding="utf-8", errors="ignore"
+                    ).readline()
+                except OSError:
+                    continue
+                if first_line.startswith("#!") and (
+                    "sh" in first_line or "bash" in first_line
+                ):
+                    candidates.add(path)
+
+        return sorted(path for path in candidates if path.is_file())
+
+    def check(self) -> int:
+        print(f"Veyr Forge consistency check for Veyr {self.version}")
+        print(f"Repository: {ROOT}")
+
+        failures: list[str] = []
+
+        def run_check(label: str, callback: Any) -> None:
+            try:
+                detail = callback()
+            except Exception as exc:  # keep checking independent sections
+                failures.append(f"{label}: {exc}")
+                print(f"{red('[FAIL]')} {label}: {exc}")
+                return
+
+            suffix = f": {detail}" if detail else ""
+            print(f"{green('[OK]')} {label}{suffix}")
+
+        def check_project_metadata() -> str:
+            project = self.config.get("project", {})
+            format_value = project.get("format")
+            if not isinstance(format_value, int) or format_value < 1:
+                fail("config/forge.toml project.format must be a positive integer")
+            if not self.arch.strip():
+                fail("project architecture is empty")
+            return f"format={format_value}, arch={self.arch}"
+
+        def check_toml_manifests() -> str:
+            manifests = [
+                CONFIG_FILE,
+                *(package.manifest for package in self.packages.values()),
+                *(profile.manifest for profile in self.profiles.values()),
+            ]
+            for manifest in manifests:
+                load_toml(manifest)
+            return f"{len(manifests)} files"
+
+        def check_references() -> str:
+            self._validate_references()
+            return (
+                f"{len(self.packages)} packages, "
+                f"{len(self.profiles)} profiles"
+            )
+
+        def check_package_graph() -> str:
+            order = self.build_order(self.packages.keys())
+            return f"{len(order)} packages, no dependency cycles"
+
+        def check_profile_graphs() -> str:
+            for profile_id in self.profiles:
+                self.profile_chain(profile_id)
+                self._validate_profile_build_stage(profile_id)
+            return f"{len(self.profiles)} profiles"
+
+        def check_shell_syntax() -> str:
+            shell_files = self._shell_check_files()
+            for path in shell_files:
+                result = subprocess.run(
+                    ["bash", "-n", str(path)],
+                    cwd=ROOT,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                if result.returncode != 0:
+                    error = result.stderr.strip() or "bash -n failed"
+                    fail(f"{path.relative_to(ROOT)}: {error}")
+            return f"{len(shell_files)} scripts"
+
+        def check_python_syntax() -> str:
+            python_files = sorted((ROOT / "tools").rglob("*.py"))
+            for path in python_files:
+                source = path.read_text(encoding="utf-8")
+                compile(source, str(path.relative_to(ROOT)), "exec")
+            return f"{len(python_files)} files"
+
+        def check_secure_tar_support() -> str:
+            if not hasattr(tarfile, "data_filter"):
+                fail(
+                    "host Python lacks tarfile.data_filter; secure source "
+                    "extraction is unavailable"
+                )
+            return "tarfile data filter available"
+
+        run_check("Project metadata", check_project_metadata)
+        run_check("TOML manifests", check_toml_manifests)
+        run_check("Manifest references and paths", check_references)
+        run_check("Package dependency graph", check_package_graph)
+        run_check("Profile inheritance/build graphs", check_profile_graphs)
+        run_check("Shell syntax", check_shell_syntax)
+        run_check("Python syntax", check_python_syntax)
+        run_check("Secure tar extraction support", check_secure_tar_support)
+
+        if failures:
+            print()
+            print(red(f"Forge consistency check failed ({len(failures)} section(s))"))
+            return 1
+
+        print()
+        ok("Forge consistency check passed")
+        return 0
 
     def doctor(self) -> int:
         print(f"Veyr Forge for Veyr {self.version}")
@@ -635,28 +904,88 @@ class Forge:
         for package_name in self.build_order(package_names):
             self.fetch_package(package_name)
 
+    @staticmethod
+    def _normalise_archive_path(
+        value: str,
+        base: tuple[str, ...] = (),
+    ) -> tuple[str, ...] | None:
+        if "\x00" in value:
+            return None
+
+        path = PurePosixPath(value)
+        if path.is_absolute():
+            return None
+
+        parts = list(base)
+        for part in path.parts:
+            if part in {"", "."}:
+                continue
+            if part == "..":
+                if not parts:
+                    return None
+                parts.pop()
+                continue
+            parts.append(part)
+
+        return tuple(parts)
+
+    def _validate_archive_member(
+        self,
+        archive: Path,
+        member: tarfile.TarInfo,
+    ) -> None:
+        member_parts = self._normalise_archive_path(member.name)
+        if member_parts is None:
+            fail(
+                f"Unsafe path in archive {archive.name}: {member.name!r}"
+            )
+
+        if member.ischr() or member.isblk() or member.isfifo():
+            fail(
+                f"Refusing special file in archive {archive.name}: "
+                f"{member.name!r}"
+            )
+
+        if member.issym():
+            target_parts = self._normalise_archive_path(
+                member.linkname,
+                member_parts[:-1],
+            )
+            if target_parts is None:
+                fail(
+                    f"Unsafe symlink in archive {archive.name}: "
+                    f"{member.name!r} -> {member.linkname!r}"
+                )
+
+        if member.islnk():
+            target_parts = self._normalise_archive_path(member.linkname)
+            if target_parts is None:
+                fail(
+                    f"Unsafe hardlink in archive {archive.name}: "
+                    f"{member.name!r} -> {member.linkname!r}"
+                )
+
     def _safe_extract(self, archive: Path, destination: Path) -> Path:
         remove_tree_contents(destination)
 
+        if not hasattr(tarfile, "data_filter"):
+            fail(
+                "Python tarfile secure extraction filters are unavailable. "
+                "Update the host Python 3.11+ installation before building Veyr."
+            )
+
         try:
             with tarfile.open(archive, mode="r:*") as tar:
-                root = destination.resolve()
+                members = tar.getmembers()
+                for member in members:
+                    self._validate_archive_member(archive, member)
 
-                for member in tar.getmembers():
-                    member_path = (destination / member.name).resolve()
-                    try:
-                        member_path.relative_to(root)
-                    except ValueError:
-                        fail(
-                            f"Unsafe path in archive {archive.name}: {member.name}"
-                        )
-
-                try:
-                    tar.extractall(destination, filter="fully_trusted")
-                except TypeError:
-                    tar.extractall(destination)
-        except tarfile.TarError as exc:
-            fail(f"Unable to extract {archive.name}: {exc}")
+                tar.extractall(destination, members=members, filter="data")
+        except ForgeError:
+            raise
+        except (tarfile.TarError, OSError, ValueError) as exc:
+            remove_tree_contents(destination)
+            fail(f"Unable to safely extract {archive.name}: {exc}")
 
         entries = list(destination.iterdir())
         if len(entries) == 1 and entries[0].is_dir():
@@ -683,26 +1012,75 @@ class Forge:
 
         return "\n".join(data).encode("utf-8")
 
-    def _support_files_fingerprint(self) -> bytes:
+    @staticmethod
+    def _named_files_fingerprint(paths: Iterable[Path]) -> bytes:
         digest = hashlib.sha256()
-        support_dir = ROOT / "scripts" / "lib"
 
-        if support_dir.is_dir():
-            for path in sorted(support_dir.rglob("*.sh")):
-                digest.update(str(path.relative_to(ROOT)).encode("utf-8"))
-                digest.update(path.read_bytes())
+        for path in sorted(set(paths), key=lambda item: str(item)):
+            if not path.is_file():
+                continue
+            digest.update(str(path.relative_to(ROOT)).encode("utf-8"))
+            digest.update(b"\0")
+            digest.update(path.read_bytes())
+            digest.update(b"\0")
 
         return digest.hexdigest().encode("ascii")
 
-    def _package_fingerprint(self, package: Package, source: Path) -> str:
+    def _support_files_fingerprint(self) -> bytes:
+        support_dir = ROOT / "scripts" / "lib"
+        paths: list[Path] = []
+
+        if support_dir.is_dir():
+            paths.extend(support_dir.rglob("*.sh"))
+
+        paths.extend(
+            path
+            for path in (
+                CONFIG_FILE,
+                ROOT / "config" / "toolchain.env",
+            )
+            if path.is_file()
+        )
+        return self._named_files_fingerprint(paths)
+
+    def _chroot_environment_fingerprint(self, profile_id: str | None) -> bytes:
+        if profile_id is None:
+            return b"missing-profile"
+
+        chroot_root = self.profile_chroot_root(profile_id)
+        prepare_steps = self.profile_prepare_steps(profile_id)
+        support_paths = [
+            ROOT / "scripts" / "run-chroot-package.sh",
+            ROOT / "scripts" / "chroot-mounts.sh",
+            *prepare_steps,
+        ]
+
+        return hash_bytes(
+            CHROOT_PROTOCOL.encode("utf-8"),
+            profile_id.encode("utf-8"),
+            (
+                str(chroot_root.relative_to(ROOT)).encode("utf-8")
+                if chroot_root is not None
+                else b"missing-chroot-root"
+            ),
+            self._named_files_fingerprint(support_paths),
+        ).encode("ascii")
+
+    def _package_fingerprint(
+        self,
+        package: Package,
+        source: Path,
+        profile_id: str | None = None,
+    ) -> str:
         environment_support = b""
 
         if package.build_environment == "chroot":
-            runner = ROOT / "scripts" / "run-chroot-package.sh"
-            if runner.is_file():
-                environment_support = runner.read_bytes()
+            environment_support = self._chroot_environment_fingerprint(profile_id)
 
         return hash_bytes(
+            BUILD_FINGERPRINT_SCHEMA.encode("utf-8"),
+            self.version.encode("utf-8"),
+            str(self.config.get("project", {}).get("format", 1)).encode("utf-8"),
             package.manifest.read_bytes(),
             package.build_script.read_bytes(),
             sha256_file(source).encode("ascii"),
@@ -730,6 +1108,9 @@ class Forge:
         except (json.JSONDecodeError, OSError):
             return False
 
+        if state.get("fingerprint_schema") != BUILD_FINGERPRINT_SCHEMA:
+            return False
+
         return state.get("fingerprint") == fingerprint
 
     def _write_state(self, package: Package, fingerprint: str) -> None:
@@ -742,6 +1123,7 @@ class Forge:
                     "version": package.version,
                     "architecture": self.arch,
                     "environment": package.build_environment,
+                    "fingerprint_schema": BUILD_FINGERPRINT_SCHEMA,
                     "fingerprint": fingerprint,
                 },
                 indent=2,
@@ -859,7 +1241,7 @@ class Forge:
                 package.name,
                 package.version,
                 str(jobs),
-                "veyr-chroot-v1",
+                CHROOT_PROTOCOL,
             ],
             cwd=ROOT,
             env=env,
@@ -893,7 +1275,11 @@ class Forge:
     ) -> None:
         package = self.package(name)
         source_archive = self.fetch_package(name)
-        fingerprint = self._package_fingerprint(package, source_archive)
+        fingerprint = self._package_fingerprint(
+            package,
+            source_archive,
+            profile_id=profile_id,
+        )
 
         if not rebuild and self._is_cached(package, fingerprint):
             ok(f"{package.name} {package.version} is already built")
@@ -1065,6 +1451,9 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command")
 
     subparsers.add_parser("doctor", help="check the host build environment")
+    subparsers.add_parser(
+        "check", help="validate Forge manifests, graphs, scripts and safety rules"
+    )
 
     list_parser = subparsers.add_parser("list", help="list packages or profiles")
     list_parser.add_argument("kind", choices=("packages", "profiles"))
@@ -1136,6 +1525,9 @@ def main() -> int:
 
         if args.command == "doctor":
             return forge.doctor()
+
+        if args.command == "check":
+            return forge.check()
 
         if args.command == "list":
             if args.kind == "packages":

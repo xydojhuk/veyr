@@ -106,7 +106,7 @@ mkdir -p "${TEST_DIR}"
 cat > "${TEST_DIR}/veyr.po" <<'EOF_PO'
 msgid ""
 msgstr ""
-"Content-Type: text/plain; charset=UTF-8\\n"
+"Content-Type: text/plain; charset=UTF-8\n"
 
 msgid "hello"
 msgstr "veyr"

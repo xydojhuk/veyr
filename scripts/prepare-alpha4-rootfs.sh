@@ -131,6 +131,14 @@ if [[ -d "${ROOTFS_BUILD}" ]] \
         log "Refreshing alpha.4 essential users/groups for resume"
         write_essential_accounts "${ROOTFS_BUILD}"
 
+        log "Refreshing alpha.4 runtime files for resume"
+        "${SUDO[@]}" install -m 0755 \
+            "${ROOT_INIT}" \
+            "${ROOTFS_BUILD}/usr/libexec/veyr-alpha4-init"
+        "${SUDO[@]}" install -m 0755 \
+            "${SMOKE_TEST}" \
+            "${ROOTFS_BUILD}/usr/lib/veyr-tests/native-alpha4-smoke.sh"
+
         log "Reusing existing alpha.4 chroot root filesystem"
         "${SCRIPT_DIR}/validate-alpha4-bootstrap-rootfs.sh" "${ROOTFS_BUILD}"
         success "Alpha.4 chroot root is ready for resume: ${ROOTFS_BUILD}"

@@ -11,6 +11,10 @@ deps:
 doctor:
 	./veyr doctor
 
+.PHONY: check
+check:
+	./veyr check
+
 .PHONY: list
 list:
 	./veyr list packages
