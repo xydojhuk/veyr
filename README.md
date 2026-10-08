@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.1.0--alpha.4-111111?style=flat-square">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.1.0--alpha.4.1-111111?style=flat-square">
   <img alt="Stage" src="https://img.shields.io/badge/stage-Native%20Chroot%20Tooling-111111?style=flat-square">
   <img alt="Architecture" src="https://img.shields.io/badge/arch-x86__64-111111?style=flat-square&logo=linux&logoColor=white">
   <img alt="Build host" src="https://img.shields.io/badge/build%20host-Fedora-111111?style=flat-square&logo=fedora&logoColor=white">
