@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  forge-consistency:
+    name: Forge / consistency
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Report tools
+        run: |
+          python3 --version
+          bash --version
+
+      - name: Check Forge repository consistency
+        run: ./veyr check
+
+  forge-cli-smoke:
+    name: Forge / CLI smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Verify version is read from VERSION
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="$(cat VERSION)"
+          reported="$(./veyr --version)"
+          printf '%s\n' "$reported"
+          [[ -n "$expected" ]]
+          [[ "$reported" == "Veyr ${expected} / Forge format "* ]]
+
+      - name: Exercise read-only Forge CLI commands
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./veyr list packages
+          ./veyr list profiles
+          for profile in bootstrap base-alpha1 base-alpha2 base-alpha3 base-alpha4; do
+            ./veyr graph "$profile"
+          done
