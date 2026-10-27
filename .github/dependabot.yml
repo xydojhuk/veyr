@@ -1,7 +1,9 @@
-# Dependabot version updates for the GitHub Actions used by Veyr.
-# Veyr Forge's custom packages/**/package.toml manifests are not
-# supported ecosystems and must be reviewed and updated separately.
+
+# Dependabot version updates for GitHub Actions.
+# Veyr Forge package.toml files are managed separately.
+
 version: 2
+
 updates:
   - package-ecosystem: "github-actions"
     directory: "/"
@@ -10,6 +12,8 @@ updates:
       day: "monday"
       time: "10:00"
       timezone: "Europe/Podgorica"
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 5
     commit-message:
       prefix: "chore(deps)"
