@@ -12,6 +12,7 @@ An independent Linux distribution assembled from upstream source code,
 with its own build orchestration system, **Veyr Forge**.
 
 [![Release](https://img.shields.io/github/v/release/xydojhuk/veyr?display_name=tag&include_prereleases&sort=semver&style=flat-square&label=release)](https://github.com/xydojhuk/veyr/releases)
+[![CI](https://github.com/xydojhuk/veyr/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/xydojhuk/veyr/actions/workflows/ci.yml)
 [![License](https://img.shields.io/github/license/xydojhuk/veyr?style=flat-square&label=license)](LICENSE)
 ![Architecture](https://img.shields.io/badge/architecture-x86__64-555555?style=flat-square)
 ![Build host](https://img.shields.io/badge/build%20host-Fedora-555555?style=flat-square)
