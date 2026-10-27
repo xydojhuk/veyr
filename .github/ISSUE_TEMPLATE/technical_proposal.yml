@@ -1,0 +1,43 @@
+name: Technical proposal
+description: Suggest a focused technical improvement without creating a roadmap commitment.
+title: "[Proposal] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Veyr is in early development. Proposals are welcome, but submitting one does not imply acceptance or a release commitment.
+        For sensitive security reports, follow [SECURITY.md](https://github.com/xydojhuk/veyr/blob/main/SECURITY.md).
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Forge correctness or validation
+        - Package or profile manifests
+        - Build system or toolchain
+        - Image or runtime testing
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or limitation
+      description: Explain the concrete problem with the current project.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: Proposed change
+      description: Describe a scoped improvement and how it would help.
+    validations:
+      required: true
+  - type: textarea
+    id: tradeoffs
+    attributes:
+      label: Tradeoffs and alternatives
+      description: Mention implementation complexity, compatibility concerns, or other approaches.
+    validations:
+      required: false

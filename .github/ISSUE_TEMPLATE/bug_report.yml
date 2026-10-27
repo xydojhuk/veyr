@@ -1,0 +1,74 @@
+name: Bug report
+description: Report a reproducible problem with Veyr Forge, builds, or VM runtime.
+title: "[Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Veyr is an experimental Linux distribution, not a production-ready OS.
+        For potential vulnerabilities, read [SECURITY.md](https://github.com/xydojhuk/veyr/blob/main/SECURITY.md) and do not publish exploit details here.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area
+      options:
+        - Veyr Forge
+        - Package or profile manifests
+        - Cross-toolchain or build scripts
+        - Initramfs or root filesystem
+        - QEMU boot or runtime
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: summary
+    attributes:
+      label: Problem
+      description: What failed, and what did you expect instead?
+      placeholder: Describe the observed behavior and expected behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Provide exact commands and the profile used, if relevant.
+      placeholder: |
+        1. Run ...
+        2. Observe ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Veyr version or commit
+      description: Paste the output of ./veyr --version or the Git commit SHA.
+      placeholder: 0.1.0-alpha.4.1 / commit SHA
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Host OS, architecture, Python version, and QEMU details if relevant.
+      placeholder: Fedora version, x86_64, Python version, QEMU version ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Sanitized output
+      description: Paste a short relevant log excerpt. Remove tokens, private paths, personal data, and credentials.
+      render: shell
+    validations:
+      required: false
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched for an existing issue reporting the same problem.
+          required: true
+        - label: This report does not contain secrets, private information, or exploitable vulnerability details.
+          required: true
