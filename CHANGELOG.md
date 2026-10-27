@@ -5,6 +5,10 @@ in [GitHub Releases](https://github.com/xydojhuk/veyr/releases).
 
 ## Unreleased
 
+## [0.1.0-alpha.4.2] — 2026-10-27
+
+**Alpha.4 maintenance and repository infrastructure.**
+
 ### Documentation
 
 - Standardized the project README and changed the release badge to update
@@ -12,6 +16,25 @@ in [GitHub Releases](https://github.com/xydojhuk/veyr/releases).
 - Added contributor guidelines and a vulnerability-reporting policy.
 - Removed the speculative public roadmap; future development plans are not
   presented as commitments.
+
+### CI and Security
+
+- Added GitHub Actions CI for Forge consistency and read-only CLI smoke tests.
+- Added regression tests for secure source archive extraction.
+- Added zizmor security checks for GitHub Actions workflows and pinned
+  GitHub Actions dependencies to immutable commit SHAs.
+- Enabled CodeQL analysis for Python and GitHub Actions.
+- Configured weekly Dependabot version updates for GitHub Actions, including
+  an explicit seven-day update cooldown.
+- Protected the default branch with required pull requests, passing checks,
+  linear history, and restrictions on deletion and force pushes.
+
+### Community
+
+- Added pull request and issue templates for bug reports and focused technical
+  proposals, with guidance for reporting security issues privately.
+
+[Release notes](https://github.com/xydojhuk/veyr/releases/tag/v0.1.0-alpha.4.2)
 
 ## [0.1.0-alpha.4.1] — 2026-10-09
 

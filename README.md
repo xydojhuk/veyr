@@ -74,7 +74,7 @@ make alpha4
 `./veyr check` is a fast repository validation. `./veyr doctor` additionally
 checks the build-host environment and may report missing tools. `make alpha4`
 builds the Linux image and its dependencies; expect substantial time and disk
-usage. It is not part of the lightweight CI checks planned for this project.
+usage. It is intentionally excluded from the current lightweight CI checks.
 
 To inspect the Alpha.4 dependency graph without building anything:
 
