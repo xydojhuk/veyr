@@ -1,139 +1,173 @@
 <p align="center">
-  <img src="assets/banner/veyr-banner.png" alt="Veyr Linux" width="100%" />
+  <img src="assets/banner/veyr-banner.png" alt="Veyr Linux banner" width="100%">
 </p>
 
-<h1 align="center">Veyr Linux</h1>
+<div align="center">
 
-<p align="center">
-  Independent Linux distribution built from upstream components.
-</p>
+# Veyr Linux
 
-<p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.1.0--alpha.4.1-111111?style=flat-square">
-  <img alt="Stage" src="https://img.shields.io/badge/stage-Native%20Chroot%20Tooling-111111?style=flat-square">
-  <img alt="Architecture" src="https://img.shields.io/badge/arch-x86__64-111111?style=flat-square&logo=linux&logoColor=white">
-  <img alt="Build host" src="https://img.shields.io/badge/build%20host-Fedora-111111?style=flat-square&logo=fedora&logoColor=white">
-</p>
+**Built from the ground up.**
 
----
+An independent Linux distribution assembled from upstream source code,
+with its own build orchestration system, **Veyr Forge**.
+
+[![Release](https://img.shields.io/github/v/release/xydojhuk/veyr?display_name=tag&include_prereleases&sort=semver&style=flat-square&label=release)](https://github.com/xydojhuk/veyr/releases)
+[![License](https://img.shields.io/github/license/xydojhuk/veyr?style=flat-square&label=license)](LICENSE)
+![Architecture](https://img.shields.io/badge/architecture-x86__64-555555?style=flat-square)
+![Build host](https://img.shields.io/badge/build%20host-Fedora-555555?style=flat-square)
+
+**[Highlights](#-highlights) · [Build](#-build-from-source) · [Run](#-run-in-qemu) · [Contribute](#-contributing)**
+
+</div>
 
 ## 🧱 About
 
-**Veyr** is an independent Linux distribution project built from upstream
-components rather than using Fedora, Ubuntu, Arch, or another distribution as
-its runtime base.
+Veyr is an independent, source-built Linux distribution project. It uses
+upstream Linux and GNU components, rather than using an existing distribution
+as its runtime base.
 
-Fedora is currently used only as the supported build host.
+**Fedora is the currently supported build host**, not the runtime system inside
+Veyr. This repository contains an early development preview intended for
+building and testing in a virtual machine. It is **not an installable desktop
+OS** and is not intended for everyday or production use.
 
-The project is built around a shared **Veyr Base**, with future
-**Desktop** and **Developer** editions on top of it.
+## ✨ Highlights
 
-## ⚙️ Current stage
+The current Alpha.4-based system includes:
 
-**Veyr Base 0.1.0-alpha.4 — Native Chroot Tooling**
+- **Veyr Forge** — source and package manifests, profile-based build graphs,
+  dependency ordering, source SHA-256 verification and a build cache.
+- **Cross-toolchain** — tools targeting `x86_64-veyr-linux-gnu`.
+- **Disk-backed root filesystem** — ext4 root and a small BusyBox initramfs,
+  followed by `switch_root` into Veyr.
+- **Native chroot builds** — packages built inside the Veyr environment,
+  with build provenance checks.
+- **QEMU development boot** — serial and graphical workflows.
+- **Consistency checks** — manifest validation, dependency graphs,
+  Shell/Python syntax, file paths and secure archive-extraction support via
+  `./veyr check`.
 
-- Veyr Forge format 3
-- x86_64 cross-toolchain
-- temporary GNU userspace
-- ext4 disk-backed root filesystem
-- small BusyBox initramfs
-- `switch_root` into Veyr
-- native package builds inside the Veyr chroot
-- build provenance and runtime verification
-- project consistency checks via `./veyr check`
+These are development capabilities; they do not imply production readiness.
 
-Target:
+## 🚀 Build from source
 
-```text
-x86_64-veyr-linux-gnu
+**Supported environment:** Fedora Linux on `x86_64`, Python 3.11+,
+Git, and the system build tools installed by the setup script.
+
+```bash
+git clone https://github.com/xydojhuk/veyr.git
+cd veyr
+
+# Review this script first: it installs Fedora packages using sudo/dnf.
+make deps
+
+# Check repository consistency and local build prerequisites.
+./veyr check
+./veyr doctor
+
+# Build the current Alpha.4 image.
+make alpha4
 ```
 
-A successful alpha.4 boot ends with:
+`./veyr check` is a fast repository validation. `./veyr doctor` additionally
+checks the build-host environment and may report missing tools. `make alpha4`
+builds the Linux image and its dependencies; expect substantial time and disk
+usage. It is not part of the lightweight CI checks planned for this project.
+
+To inspect the Alpha.4 dependency graph without building anything:
+
+```bash
+./veyr graph base-alpha4
+```
+
+## ▶️ Run in QEMU
+
+After a successful build, start the serial/debug environment:
+
+```bash
+make run-alpha4-serial
+```
+
+Or use the graphical QEMU launcher:
+
+```bash
+./veyr run base-alpha4
+```
+
+The serial launcher uses a snapshot disk and prints the QEMU exit shortcut.
+If `/dev/kvm` is not accessible, it falls back to software emulation.
+
+Expected output paths include:
+
+```text
+out/images/base-alpha4/initramfs.img
+out/images/base-alpha4/veyr-rootfs.ext4
+out/images/base-alpha4/Veyr-<VERSION>-base-alpha4-x86_64.iso
+```
+
+`<VERSION>` is the value of the repository's [`VERSION`](VERSION) file.
+To check the version of your local source tree:
+
+```bash
+./veyr --version
+```
+
+The **Release** badge above shows the most recently published GitHub Release,
+including prereleases. It does not change the local `VERSION` file.
+
+## 🖥️ Preview
+
+Boot screenshots and serial-console captures are not included yet. They can be
+added here when available; no images or boot results are simulated in this README.
+
+A successful Alpha.4 verification has previously produced:
 
 ```text
 Native chroot tool verification: PASS
 Alpha.4 runtime verification: PASS
 ```
 
-## 🚀 Build
+This example documents the published Alpha.4 verification, not a guarantee
+that every future build will succeed.
 
-Supported build host:
-
-```text
-Fedora Linux · x86_64
-```
-
-Install build dependencies and verify the environment:
-
-```bash
-make deps
-./veyr check
-./veyr doctor
-```
-
-Build the current image:
-
-```bash
-make alpha4
-```
-
-Or run the individual Forge stages:
-
-```bash
-./veyr graph base-alpha4
-./veyr fetch --profile base-alpha4
-./veyr image base-alpha4
-```
-
-## ▶️ Run
-
-Recommended serial/debug mode:
-
-```bash
-make run-alpha4-serial
-```
-
-Graphical QEMU mode:
-
-```bash
-./veyr run base-alpha4
-```
-
-Generated artifacts:
-
-```text
-out/images/base-alpha4/initramfs.img
-out/images/base-alpha4/veyr-rootfs.ext4
-out/images/base-alpha4/Veyr-0.1.0-alpha.4-base-alpha4-x86_64.iso
-```
-
-## 🧩 Project
+## 🧩 Repository structure
 
 ```text
 config/        Forge and toolchain configuration
 packages/      Package manifests and build scripts
 profiles/      Build and image profiles
-scripts/       Build, chroot and image helpers
+scripts/       Build and runtime helper scripts
 initramfs/     Early userspace
-rootfs/        Veyr root filesystem files
+rootfs/        Root filesystem files
 tests/         Build and runtime verification
-tools/forge/   Veyr Forge
-docs/          Project documentation
+tools/forge/   Veyr Forge implementation
+assets/        Branding and repository assets
 ```
 
-Older alpha profiles remain available for regression testing:
+Generated files are kept in `build/`, `sources/` and `out/` and should not be
+committed to Git.
 
-```bash
-make alpha1
-make alpha2
-make alpha3
-make alpha4
-```
+## 🤝 Contributing
 
-## 🗺️ Roadmap
+Bug reports, reproducible build issues and focused pull requests are welcome.
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before submitting a change. Please
+include the host distribution, relevant commands, expected results and
+sanitized logs. Never publish secrets, private data or untrusted artifacts.
 
-Development plans and upcoming milestones are tracked in
-[`docs/ROADMAP.md`](docs/ROADMAP.md).
+## 🛡️ Security
+
+Please follow [SECURITY.md](SECURITY.md) for responsible vulnerability
+reporting. Do not publish working exploits or sensitive security details in
+public issues.
+
+## 📦 Releases
+
+See [GitHub Releases](https://github.com/xydojhuk/veyr/releases) for published
+build milestones and [CHANGELOG.md](CHANGELOG.md) for release history.
+
+## 📄 License
+
+Veyr is released under the [MIT License](LICENSE).
 
 ---
 
